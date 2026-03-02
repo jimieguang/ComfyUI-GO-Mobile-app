@@ -1,0 +1,26 @@
+<resources>
+    <string name="app_name">ComfyUI GO</string>
+    <string name="title_home">执行</string>
+    <string name="title_dashboard">执行历史</string>
+    <string name="title_notifications">工作流存储</string>
+    
+    <!-- 服务器连接 -->
+    <string name="server_url_hint">ComfyUI服务器URL（例如：http://127.0.0.1:8188）</string>
+    <string name="connect_server">连接服务器</string>
+    <string name="connecting">连接中...</string>
+    <string name="connected">已连接</string>
+    <string name="connection_error">连接失败</string>
+    
+    <!-- 工作流导入 -->
+    <string name="import_workflow">导入工作流</string>
+    <string name="upload_from_file">从文件上传</string>
+    <string name="paste_from_clipboard">从剪贴板导入</string>
+    <string name="parse_workflow">解析工作流</string>
+    
+    <!-- 通用 -->
+    <string name="loading">加载中...</string>
+    <string name="error">错误</string>
+    <string name="success">成功</string>
+    <string name="cancel">取消</string>
+    <string name="confirm">确认</string>
+</resources>

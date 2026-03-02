@@ -1,0 +1,25 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 纸飞机主体（放大1.5倍，使其与其他图标大小一致） -->
+    <group
+        android:scaleX="1.5"
+        android:scaleY="1.5"
+        android:pivotX="12"
+        android:pivotY="12">
+        <!-- 纸飞机主体（使用colorControlNormal，会自动适配选中/未选中状态） -->
+        <path
+            android:fillColor="?attr/colorControlNormal"
+            android:pathData="M16.975,7.5l-1.873,9.563c0,0-0.081,0.437-0.623,0.437c-0.288,0-0.437-0.137-0.437-0.137l-4.057-3.367 l-1.985-1.001l-2.548-0.678c0,0-0.454-0.131-0.454-0.506c0-0.313,0.467-0.462,0.467-0.462l10.658-4.234 c-0.001-0.001,0.326-0.118,0.563-0.117C16.834,7,17,7.063,17,7.25C17,7.375,16.975,7.5,16.975,7.5z"/>
+        <!-- 灰色阴影部分1（固定灰色，不受主题色影响） -->
+        <path
+            android:fillColor="#B0BEC5"
+            android:pathData="M11.5,15.253l-1.713,1.687c0,0-0.075,0.058-0.174,0.06c-0.035,0.001-0.072-0.005-0.110-0.022 l0.482-2.983L11.5,15.253z"/>
+        <!-- 灰色阴影部分2（固定灰色，不受主题色影响） -->
+        <path
+            android:fillColor="#CFD8DC"
+            android:pathData="M14.949,9.098c-0.085-0.11-0.241-0.13-0.351-0.047L8,13c0,0,1.053,2.946,1.214,3.456 c0.161,0.511,0.29,0.523,0.29,0.523l0.482-2.983l4.916-4.548C15.012,9.365,15.032,9.208,14.949,9.098z"/>
+    </group>
+</vector>
