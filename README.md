@@ -209,7 +209,10 @@ Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for gu
 
 ## License
 
-This project is open source. Please add an appropriate license file.
+Copyright (c) 2024 huafitw
+
+Permission to use, copy, modify, and distribute this software is granted, provided that derivative works are open-sourced under the same terms. Commercial use, sale, or any profit-making activity is strictly prohibited.
+
 
 ## Acknowledgments
 
