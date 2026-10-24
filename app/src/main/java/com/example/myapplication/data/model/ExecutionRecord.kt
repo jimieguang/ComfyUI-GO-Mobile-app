@@ -1,6 +1,7 @@
 package com.example.myapplication.data.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 /**
  * 执行历史记录
@@ -27,6 +28,9 @@ data class ExecutionRecord(
     val workflowJsonHash: String? = null,  // 工作流JSON的hash（用于本地文件引用和去重）
     val quickParams: Map<String, List<String>>? = null,  // 快速参数配置（节点ID -> 参数ID列表）
     val textOutputs: Map<String, List<String>> = emptyMap(),  // 📝 文本输出（节点ID -> 文本列表）
+    // 执行时实际使用的参数值（参数ID -> 值），用于左滑历史时还原尺寸/提示词等
+    // 注意：媒体类参数（图片/视频/音频）不保存，其值指向服务端临时文件，复用会失败
+    val parameterValues: Map<String, JsonElement>? = null,
     // 移除 imageUrls 字段，不再依赖远程URL
     @Deprecated("不再使用远程URL，已改为本地存储", level = DeprecationLevel.HIDDEN)
     val imageUrls: List<String> = emptyList()  // 向后兼容旧数据

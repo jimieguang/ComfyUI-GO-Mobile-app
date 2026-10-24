@@ -18,7 +18,8 @@ import javax.inject.Inject
 @HiltViewModel
 class WorkflowImportViewModel @Inject constructor(
     private val workflowImportManager: WorkflowImportManager,
-    private val repository: com.example.myapplication.data.repository.ComfyUIRepository
+    private val repository: com.example.myapplication.data.repository.ComfyUIRepository,
+    private val folderStore: com.example.myapplication.util.WorkflowFolderStore
 ) : ViewModel() {
     
     /**
@@ -40,7 +41,15 @@ class WorkflowImportViewModel @Inject constructor(
         val showClipboardNameDialog: Boolean = false,
         val pendingClipboardResult: WorkflowImportManager.ImportResult? = null,
         // ✅ 直接导入（文件/剪贴板/URL）后，通知生成器界面清空一次快速参数
-        val clearQuickParamsOnce: Boolean = false
+        val clearQuickParamsOnce: Boolean = false,
+        // 已授权的工作流文件夹
+        val folderName: String? = null,
+        val hasFolder: Boolean = false,
+        // 文件夹选择弹层
+        val showFolderPicker: Boolean = false,
+        val folderFiles: List<com.example.myapplication.util.WorkflowFolderStore.FolderFile> = emptyList(),
+        val isLoadingFolderFiles: Boolean = false,
+        val folderError: String? = null
     )
     
     // 内部可变状态
@@ -48,6 +57,116 @@ class WorkflowImportViewModel @Inject constructor(
     
     // 对外暴露的只读状态
     val uiState: StateFlow<WorkflowImportUiState> = _uiState.asStateFlow()
+
+    init {
+        // 同步已授权的工作流文件夹信息到 UI 状态
+        viewModelScope.launch {
+            folderStore.getFolderName().collect { name ->
+                _uiState.update { it.copy(folderName = name, hasFolder = !name.isNullOrBlank()) }
+            }
+        }
+    }
+
+    /**
+     * 保存用户选择的工作流文件夹（SAF 目录授权）
+     */
+    fun setWorkflowFolder(treeUri: Uri) {
+        viewModelScope.launch {
+            try {
+                folderStore.saveFolder(treeUri)
+                _uiState.update { it.copy(folderError = null) }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(folderError = "设置文件夹失败: ${e.message}") }
+            }
+        }
+    }
+
+    /**
+     * 清除已授权的工作流文件夹
+     */
+    fun clearWorkflowFolder() {
+        viewModelScope.launch {
+            folderStore.clearFolder()
+            _uiState.update {
+                it.copy(
+                    hasFolder = false,
+                    folderName = null,
+                    showFolderPicker = false,
+                    folderFiles = emptyList()
+                )
+            }
+        }
+    }
+
+    /**
+     * 打开应用内的工作流文件列表
+     */
+    fun openFolderPicker() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(showFolderPicker = true, isLoadingFolderFiles = true, folderError = null) }
+            val treeUri = folderStore.getFolderUri().first()
+            if (treeUri == null) {
+                _uiState.update {
+                    it.copy(
+                        isLoadingFolderFiles = false,
+                        folderError = "尚未设置工作流文件夹"
+                    )
+                }
+                return@launch
+            }
+            val files = folderStore.listJsonFiles(treeUri)
+            _uiState.update {
+                it.copy(
+                    isLoadingFolderFiles = false,
+                    folderFiles = files,
+                    folderError = if (files.isEmpty()) "该文件夹下没有 .json 文件" else null
+                )
+            }
+        }
+    }
+
+    fun dismissFolderPicker() {
+        _uiState.update { it.copy(showFolderPicker = false, folderError = null) }
+    }
+
+    /**
+     * 从已授权文件夹中的某个文件导入
+     */
+    fun importFromFolderFile(file: com.example.myapplication.util.WorkflowFolderStore.FolderFile) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isImporting = true,
+                    showFolderPicker = false,
+                    showError = false
+                )
+            }
+            try {
+                val text = folderStore.readFileText(file.uri)
+                if (text.isNullOrBlank()) {
+                    _uiState.update {
+                        it.copy(isImporting = false, showError = true, errorMessage = "文件内容为空或无法读取")
+                    }
+                    return@launch
+                }
+                val result = workflowImportManager.importFromText(text)
+                handleImportResult(
+                    result.copy(
+                        source = WorkflowImportManager.ImportSource.FILE,
+                        workflowName = file.name
+                    )
+                )
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isImporting = false,
+                        showError = true,
+                        errorMessage = "文件导入异常: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
     
     /**
      * 消费一次性清空快速参数标记（由生成器界面调用）

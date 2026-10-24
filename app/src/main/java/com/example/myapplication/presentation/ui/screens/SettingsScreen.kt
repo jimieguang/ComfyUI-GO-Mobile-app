@@ -118,9 +118,9 @@ fun SettingsScreen(
                 Box(modifier = Modifier.padding(16.dp)) {
             LLMSettingsContent(
                 currentConfig = llmConfig,
-                onSave = { apiKey, modelName, temperature, maxTokens, provider ->
-                    llmViewModel.saveApiKey(apiKey, provider)
-                    llmViewModel.saveModelConfig(modelName, temperature, maxTokens, provider)
+                onSave = { baseUrl, apiKey, modelName, temperature, maxTokens, apiStyle ->
+                    llmViewModel.saveCustomConfig(baseUrl, apiKey, modelName, apiStyle)
+                    llmViewModel.saveModelConfig(modelName, temperature, maxTokens)
                     android.widget.Toast.makeText(context, "配置已保存", android.widget.Toast.LENGTH_SHORT).show()
                 },
                 onProviderChange = { provider ->

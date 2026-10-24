@@ -5,6 +5,7 @@ import com.example.myapplication.data.api.BaiLianApiService
 import com.example.myapplication.data.model.*
 import com.example.myapplication.util.LLMPreferences
 import com.example.myapplication.util.LLMProvider
+import com.example.myapplication.util.LLMApiStyle
 import kotlinx.coroutines.flow.first
 import retrofit2.Response
 import javax.inject.Inject
@@ -56,10 +57,10 @@ class LLMRepository @Inject constructor(
                 BaiLianMessage(role = "user", content = userPrompt)
             )
             
-            // 根据服务商处理不同的请求和响应
-            when (config.provider) {
-                LLMProvider.ALIYUN -> {
-                    val url = "${config.baseUrl}api/v1/services/aigc/text-generation/generation"
+            // 根据接口协议处理不同的请求和响应
+            when (config.apiStyle) {
+                LLMApiStyle.BAILIAN -> {
+                    val url = buildBailianUrl(config.baseUrl)
                     val request = BaiLianRequest(
                         model = config.modelName,
                         input = BaiLianInput(messages = messages),
@@ -69,30 +70,64 @@ class LLMRepository @Inject constructor(
                             maxTokens = config.maxTokens
                         )
                     )
-                    Log.d(TAG, "发送请求到 [阿里云百炼], URL: $url, 模型: ${config.modelName}")
+                    Log.d(TAG, "发送请求到 [百炼协议], URL: $url, 模型: ${config.modelName}")
                     
                     val response = apiService.generateTextAliyun(url = url, request = request)
                     return handleAliyunResponse(response)
                 }
-                LLMProvider.SILICON_FLOW -> {
-                    val url = "${config.baseUrl}/chat/completions"
+                else -> {
+                    val url = buildOpenAiUrl(config.baseUrl)
                     val request = OpenAIRequest(
                         model = config.modelName,
                         messages = messages,
                         temperature = config.temperature,
                         maxTokens = config.maxTokens
                     )
-                    Log.d(TAG, "发送请求到 [硅基流动], URL: $url, 模型: ${config.modelName}")
+                    Log.d(TAG, "发送请求到 [OpenAI 兼容], URL: $url, 模型: ${config.modelName}")
                     
                     val response = apiService.generateTextOpenAI(url = url, request = request)
                     return handleOpenAIResponse(response)
                 }
-                else -> return Result.failure(Exception("不支持的服务商: ${config.provider}"))
             }
             
         } catch (e: Exception) {
             Log.e(TAG, "文本处理异常", e)
             Result.failure(e)
+        }
+    }
+
+    /**
+     * 规范化 Base URL：去掉尾部斜杠
+     */
+    private fun normalizeBase(baseUrl: String): String = baseUrl.trim().trimEnd('/')
+
+    /**
+     * 百炼协议完整地址
+     */
+    private fun buildBailianUrl(baseUrl: String): String =
+        "${normalizeBase(baseUrl)}/api/v1/services/aigc/text-generation/generation"
+
+    /**
+     * OpenAI 兼容完整地址：已含 /chat/completions 的直接用，否则补 /chat/completions
+     */
+    private fun buildOpenAiUrl(baseUrl: String): String {
+        val base = normalizeBase(baseUrl)
+        return when {
+            base.endsWith("/chat/completions") -> base
+            base.endsWith("/v1") -> "$base/chat/completions"
+            else -> "$base/v1/chat/completions"
+        }
+    }
+
+    /**
+     * OpenAI 兼容的模型列表地址
+     */
+    private fun buildModelsUrl(baseUrl: String): String {
+        val base = normalizeBase(baseUrl)
+        return when {
+            base.endsWith("/chat/completions") -> base.removeSuffix("/chat/completions") + "/models"
+            base.endsWith("/v1") -> "$base/models"
+            else -> "$base/v1/models"
         }
     }
     
@@ -111,9 +146,9 @@ class LLMRepository @Inject constructor(
                 BaiLianMessage(role = "user", content = "Hi")
             )
             
-            when (config.provider) {
-                LLMProvider.ALIYUN -> {
-                    val url = "${config.baseUrl}api/v1/services/aigc/text-generation/generation"
+            when (config.apiStyle) {
+                LLMApiStyle.BAILIAN -> {
+                    val url = buildBailianUrl(config.baseUrl)
                     val request = BaiLianRequest(
                         model = config.modelName,
                         input = BaiLianInput(messages = messages),
@@ -136,8 +171,8 @@ class LLMRepository @Inject constructor(
                         return Result.failure(Exception(getErrorMessage(response.code(), errorBody)))
                     }
                 }
-                LLMProvider.SILICON_FLOW -> {
-                    val url = "${config.baseUrl}/chat/completions"
+                else -> {
+                    val url = buildOpenAiUrl(config.baseUrl)
                     val request = OpenAIRequest(
                         model = config.modelName,
                         messages = messages,
@@ -157,7 +192,6 @@ class LLMRepository @Inject constructor(
                         return Result.failure(Exception(getErrorMessage(response.code(), errorBody)))
                     }
                 }
-                else -> return Result.failure(Exception("不支持的服务商: ${config.provider}"))
             }
             
         } catch (e: Exception) {
@@ -301,92 +335,42 @@ class LLMRepository @Inject constructor(
      */
     suspend fun getAvailableModels(provider: String): Result<List<Pair<String, String>>> {
         return try {
-            Log.d(TAG, "获取模型列表，服务商: $provider")
-            
             val config = preferences.getConfig().first()
-            
-            // 阿里云百炼暂不支持动态获取模型列表，返回硬编码列表
-            if (provider == LLMProvider.ALIYUN) {
+
+            // 百炼协议没有通用的模型列表接口，返回内置候选
+            if (config.apiStyle == LLMApiStyle.BAILIAN) {
                 return Result.success(listOf(
-                    "qwen-turbo" to "通义千问-Turbo (推荐)",
+                    "qwen-turbo" to "通义千问-Turbo",
                     "qwen-plus" to "通义千问-Plus",
                     "qwen-max" to "通义千问-Max"
                 ))
             }
-            
-            // 硅基流动：调用 /v1/models 接口
-            if (provider == LLMProvider.SILICON_FLOW) {
-                // 如果没有API Key，返回硬编码的默认列表
-                if (config.apiKey.isBlank()) {
-                    Log.d(TAG, "API Key未配置，返回默认模型列表")
-                    return Result.success(listOf(
-                        "Qwen/Qwen2-7B-Instruct" to "通义千问Qwen2-7B",
-                        "deepseek-ai/DeepSeek-V2-Chat" to "DeepSeek-V2 (推荐)",
-                        "meta-llama/Llama-3-8b-chat-hf" to "Llama3-8B"
-                    ))
-                }
-                
-                // 使用 sub_type=chat 参数只获取对话模型
-                val url = "${config.baseUrl}/models?sub_type=chat"
-                Log.d(TAG, "请求对话模型列表: $url")
-                
-                val response = apiService.getModels(url)
-                
-                if (response.isSuccessful && response.body() != null) {
-                    val body = response.body()!!
-                    val models = body.data?.map { model ->
-                        // 从模型ID生成显示名称
-                        val displayName = model.name ?: model.id.split("/").lastOrNull() ?: model.id
-                        model.id to displayName
-                    } ?: emptyList()
-                    
-                    Log.d(TAG, "成功获取 ${models.size} 个模型")
-                    
-                    // 如果API返回的模型列表为空，返回默认列表
-                    if (models.isEmpty()) {
-                        Log.d(TAG, "API返回空列表，使用默认模型列表")
-                        return Result.success(listOf(
-                            "Qwen/Qwen2-7B-Instruct" to "通义千问Qwen2-7B",
-                            "deepseek-ai/DeepSeek-V2-Chat" to "DeepSeek-V2 (推荐)",
-                            "meta-llama/Llama-3-8b-chat-hf" to "Llama3-8B"
-                        ))
-                    }
-                    
-                    return Result.success(models)
-                } else {
-                    val errorBody = response.errorBody()?.string()
-                    Log.e(TAG, "获取模型列表失败: ${response.code()}, 错误: $errorBody")
-                    
-                    // API调用失败，返回默认列表
-                    Log.d(TAG, "使用默认模型列表作为备选")
-                    return Result.success(listOf(
-                        "Qwen/Qwen2-7B-Instruct" to "通义千问Qwen2-7B",
-                        "deepseek-ai/DeepSeek-V2-Chat" to "DeepSeek-V2 (推荐)",
-                        "meta-llama/Llama-3-8b-chat-hf" to "Llama3-8B"
-                    ))
-                }
+
+            if (config.apiKey.isBlank()) {
+                Log.d(TAG, "API Key 未配置，跳过模型列表拉取")
+                return Result.success(emptyList())
             }
-            
-            // 未知服务商
-            Result.failure(Exception("不支持的服务商: $provider"))
-            
+
+            val url = buildModelsUrl(config.baseUrl)
+            Log.d(TAG, "请求模型列表: $url")
+
+            val response = apiService.getModels(url)
+
+            if (response.isSuccessful && response.body() != null) {
+                val models = response.body()!!.data?.map { model ->
+                    val displayName = model.name ?: model.id.split("/").lastOrNull() ?: model.id
+                    model.id to displayName
+                } ?: emptyList()
+                Log.d(TAG, "成功获取 ${models.size} 个模型")
+                Result.success(models)
+            } else {
+                val errorBody = response.errorBody()?.string()
+                Log.e(TAG, "获取模型列表失败: ${response.code()}, 错误: $errorBody")
+                Result.failure(Exception(getErrorMessage(response.code(), errorBody)))
+            }
         } catch (e: Exception) {
             Log.e(TAG, "获取模型列表异常", e)
-            
-            // 异常情况下返回默认列表
-            when (provider) {
-                LLMProvider.ALIYUN -> Result.success(listOf(
-                    "qwen-turbo" to "通义千问-Turbo (推荐)",
-                    "qwen-plus" to "通义千问-Plus",
-                    "qwen-max" to "通义千问-Max"
-                ))
-                LLMProvider.SILICON_FLOW -> Result.success(listOf(
-                    "Qwen/Qwen2-7B-Instruct" to "通义千问Qwen2-7B",
-                    "deepseek-ai/DeepSeek-V2-Chat" to "DeepSeek-V2 (推荐)",
-                    "meta-llama/Llama-3-8b-chat-hf" to "Llama3-8B"
-                ))
-                else -> Result.failure(e)
-            }
+            Result.failure(e)
         }
     }
 

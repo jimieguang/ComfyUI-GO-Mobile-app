@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -46,6 +47,11 @@ fun WorkflowImportCard(
     onClearError: () -> Unit,
     onConfirmClipboardName: (String) -> Unit,
     onCancelClipboardImport: () -> Unit,
+    onFolderSelected: (Uri) -> Unit = {},
+    onOpenFolderPicker: () -> Unit = {},
+    onFolderFileSelected: (com.example.myapplication.util.WorkflowFolderStore.FolderFile) -> Unit = {},
+    onDismissFolderPicker: () -> Unit = {},
+    onClearFolder: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // 工作流命名对话框状态
@@ -68,6 +74,13 @@ fun WorkflowImportCard(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let { onFileImport(it) }
+    }
+
+    // 工作流文件夹选择器（SAF 目录授权，一次授权长期有效）
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        uri?.let { onFolderSelected(it) }
     }
     
     Card(
@@ -181,7 +194,13 @@ fun WorkflowImportCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
-                        onClick = { filePickerLauncher.launch("application/json") },
+                        onClick = {
+                            if (uiState.hasFolder) {
+                                onOpenFolderPicker()
+                            } else {
+                                folderPickerLauncher.launch(null)
+                            }
+                        },
                         modifier = Modifier.weight(1f),
                         enabled = !uiState.isImporting
                     ) {
@@ -189,7 +208,13 @@ fun WorkflowImportCard(
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(4.dp))
                         }
-                        Text(if (uiState.hasWorkflow) "更换文件" else "选择文件")
+                        Text(
+                            when {
+                                !uiState.hasFolder -> "选择文件夹"
+                                uiState.hasWorkflow -> "更换文件"
+                                else -> "选择文件"
+                            }
+                        )
                     }
                     OutlinedButton(
                         onClick = onClipboardImport,
@@ -341,6 +366,116 @@ fun WorkflowImportCard(
                 }
             }
         )
+    }
+
+    // 工作流文件夹文件列表弹层
+    if (uiState.showFolderPicker) {
+        val folderFiles = uiState.folderFiles
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = onDismissFolderPicker,
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .fillMaxHeight(0.75f),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = uiState.folderName ?: "工作流文件夹",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${folderFiles.size} 个 JSON 文件",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TextButton(onClick = { folderPickerLauncher.launch(null) }) {
+                            Text("换文件夹")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (uiState.isLoadingFolderFiles) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        }
+                    } else if (folderFiles.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = uiState.folderError ?: "该文件夹下没有 .json 文件",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        androidx.compose.foundation.lazy.LazyColumn(
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            items(folderFiles.size) { index ->
+                                val file = folderFiles[index]
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onFolderFileSelected(file) }
+                                        .padding(vertical = 12.dp, horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = file.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = onClearFolder) {
+                            Text("取消授权", color = MaterialTheme.colorScheme.error)
+                        }
+                        TextButton(onClick = onDismissFolderPicker) {
+                            Text("关闭")
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

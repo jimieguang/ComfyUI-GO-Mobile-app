@@ -264,13 +264,15 @@ fun MainScreen() {
                 val importUi by sharedImportViewModel.uiState.collectAsState()
                  ExecutionHistoryScreen(
                     viewModel = androidx.hilt.navigation.compose.hiltViewModel(),
-                     onUseWorkflow = { workflowJson, name, quickParams ->
+                     onUseWorkflow = { workflowJson, name, quickParams, parameterValues ->
                         // 将工作流设置到导入VM，并跳转至生成器页
                         // 先写入名称与来源，再导入，避免被后续覆盖
                         sharedImportViewModel.applyWorkflowNameFromHistory(name)
                         sharedImportViewModel.updateJsonInputText(workflowJson.toString())
                         // ✅ 先恢复快速参数配置（在导入之前）
                         sharedParserViewModel.restoreQuickParams(quickParams)
+                        // ✅ 恢复执行当时的参数值（尺寸/提示词/种子等），解析完成后注入
+                        sharedParserViewModel.restoreParameterValues(parameterValues)
                         sharedImportViewModel.importFromCurrentText()
                         navController.navigate(ComfyUIDestination.WORKFLOW_GENERATOR.route) {
                             popUpTo(navController.graph.findStartDestination().id) { saveState = true }

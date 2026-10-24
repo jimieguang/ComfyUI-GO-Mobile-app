@@ -32,7 +32,8 @@ data class ExecutionRecordParams(
     val importSource: String?,
     val errorType: String? = null,
     val errorMessage: String? = null,
-    val quickParams: Map<String, List<String>>? = null
+    val quickParams: Map<String, List<String>>? = null,
+    val parameterValues: Map<String, kotlinx.serialization.json.JsonElement>? = null
 )
 
 /**
@@ -128,7 +129,8 @@ class ExecutionRecordManager @Inject constructor(
             audioDownloadProgress = emptyMap(),
             workflowJsonHash = workflowHash,
             quickParams = params.quickParams,
-            textOutputs = params.textOutputs
+            textOutputs = params.textOutputs,
+            parameterValues = params.parameterValues
         )
         
         repository.appendExecutionRecord(initialRecord)
@@ -240,7 +242,8 @@ class ExecutionRecordManager @Inject constructor(
             audioUrls = params.audioUrls,
             workflowJsonHash = workflowHash,
             quickParams = params.quickParams,
-            textOutputs = params.textOutputs
+            textOutputs = params.textOutputs,
+            parameterValues = params.parameterValues
         )
         
         repository.appendExecutionRecord(record)

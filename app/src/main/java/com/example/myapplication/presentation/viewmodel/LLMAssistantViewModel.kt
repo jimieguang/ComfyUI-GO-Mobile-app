@@ -58,7 +58,7 @@ class LLMAssistantViewModel @Inject constructor(
     
     // 当前选择的服务商
     private val _currentProvider = preferences.getProvider()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LLMProvider.ALIYUN)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LLMProvider.CUSTOM)
 
     // 完整的LLM配置状态
     val llmConfig: StateFlow<LLMPreferences.LLMConfig> = preferences.getConfig()
@@ -66,12 +66,13 @@ class LLMAssistantViewModel @Inject constructor(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = LLMPreferences.LLMConfig(
-                provider = LLMProvider.ALIYUN,
+                provider = LLMProvider.CUSTOM,
                 apiKey = "",
-                modelName = LLMPreferences.DEFAULT_ALIYUN_MODEL,
+                modelName = "",
                 temperature = LLMPreferences.DEFAULT_TEMPERATURE,
                 maxTokens = LLMPreferences.DEFAULT_MAX_TOKENS,
-                baseUrl = LLMPreferences.DEFAULT_ALIYUN_BASE_URL
+                baseUrl = "",
+                apiStyle = com.example.myapplication.util.LLMApiStyle.OPENAI
             )
         )
 
@@ -366,10 +367,24 @@ class LLMAssistantViewModel @Inject constructor(
         modelName: String,
         temperature: Float,
         maxTokens: Int,
-        provider: String
+        provider: String = LLMProvider.CUSTOM
     ) {
         viewModelScope.launch {
             preferences.saveModelConfig(modelName, temperature, maxTokens, provider)
+        }
+    }
+
+    /**
+     * 保存自定义 provider 配置（接口地址 / Key / 模型 / 协议格式）
+     */
+    fun saveCustomConfig(
+        baseUrl: String,
+        apiKey: String,
+        modelName: String,
+        apiStyle: String
+    ) {
+        viewModelScope.launch {
+            preferences.saveCustomConfig(baseUrl, apiKey, modelName, apiStyle)
         }
     }
     

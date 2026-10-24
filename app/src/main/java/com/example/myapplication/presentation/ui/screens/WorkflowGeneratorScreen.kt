@@ -333,7 +333,12 @@ fun WorkflowGeneratorScreen(
                 },
                 onClearError = importViewModel::clearError,
                 onConfirmClipboardName = importViewModel::confirmClipboardWorkflowName,
-                onCancelClipboardImport = importViewModel::cancelClipboardWorkflowImport
+                onCancelClipboardImport = importViewModel::cancelClipboardWorkflowImport,
+                onFolderSelected = importViewModel::setWorkflowFolder,
+                onOpenFolderPicker = importViewModel::openFolderPicker,
+                onFolderFileSelected = importViewModel::importFromFolderFile,
+                onDismissFolderPicker = importViewModel::dismissFolderPicker,
+                onClearFolder = importViewModel::clearWorkflowFolder
             )
             
             // 参数设置区域：仅保留"编辑参数"按钮 + 保存到库

@@ -186,7 +186,8 @@ class WorkflowExecutor @Inject constructor(
                                     textOutputs = executionResult.outputTexts,
                                     workflowName = name,
                                     importSource = source,
-                                    quickParams = quickParams
+                                        quickParams = quickParams,
+                            parameterValues = sanitizeParameterValues(parameterValues)
                                 ))
                             } catch (e: Exception) {
                                 Log.e(TAG, "缓存路径保存记录失败", e)
@@ -561,7 +562,8 @@ class WorkflowExecutor @Inject constructor(
                             textOutputs = mergedResult.outputTexts,
                             workflowName = name,
                             importSource = source,
-                            quickParams = quickParams
+                            quickParams = quickParams,
+                            parameterValues = sanitizeParameterValues(parameterValues)
                         ))
                     } catch (e: Exception) {
                         Log.e(TAG, "保存执行记录失败", e)
@@ -661,7 +663,8 @@ class WorkflowExecutor @Inject constructor(
                         errorMessage = if (hasOutput) null 
                                       else if (historyResult.hadError) _executionStatus.value.errorDetails ?: _executionStatus.value.message 
                                       else null,
-                        quickParams = quickParams
+                        quickParams = quickParams,
+                        parameterValues = sanitizeParameterValues(parameterValues)
                     ))
                 } catch (e: Exception) {
                     Log.e(TAG, "保存执行记录失败", e)
@@ -703,6 +706,23 @@ class WorkflowExecutor @Inject constructor(
     /**
      * 准备执行工作流（应用用户参数）
      */
+    /**
+     * 过滤掉媒体类参数后再持久化。
+     * 图片/视频/音频参数在提交前会被替换成服务端临时文件名，
+     * 该名字在下次执行时通常已失效，回填只会导致必然失败的任务。
+     */
+    private fun sanitizeParameterValues(
+        values: Map<String, JsonElement>
+    ): Map<String, JsonElement> {
+        val mediaKeywords = listOf(
+            "image", "video", "audio", "mask", "upload", "file", "filename", "clip_name"
+        )
+        return values.filterKeys { paramId ->
+            val name = paramId.substringAfter('_', paramId).lowercase()
+            mediaKeywords.none { name.contains(it) }
+        }
+    }
+
     private fun prepareWorkflow(
         originalWorkflow: JsonObject,
         parameterValues: Map<String, JsonElement>
@@ -1041,7 +1061,8 @@ class WorkflowExecutor @Inject constructor(
                                         textOutputs = result.outputTexts,
                                         workflowName = name,
                                         importSource = source,
-                                        quickParams = quickParams
+                                            quickParams = quickParams,
+                            parameterValues = sanitizeParameterValues(parameterValues)
                                     ))
                                 } catch (e: Exception) {
                                     Log.e(TAG, "保存执行记录失败", e)

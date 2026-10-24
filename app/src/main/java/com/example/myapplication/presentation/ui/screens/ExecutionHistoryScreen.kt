@@ -113,7 +113,7 @@ private enum class HistoryViewMode {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalAnimationApi::class)
 fun ExecutionHistoryScreen(
     viewModel: com.example.myapplication.presentation.viewmodel.ExecutionHistoryViewModel,
-    onUseWorkflow: (kotlinx.serialization.json.JsonObject, String?, Map<String, List<String>>?) -> Unit,
+    onUseWorkflow: (kotlinx.serialization.json.JsonObject, String?, Map<String, List<String>>?, Map<String, kotlinx.serialization.json.JsonElement>?) -> Unit,
     onOpenWaterfall: () -> Unit = {}
 ) {
     val records by viewModel.records.collectAsState()
@@ -373,7 +373,7 @@ private fun HistoryCardView(
     records: List<com.example.myapplication.data.model.ExecutionRecord>,
     names: Map<String, String>,
     outputs: Map<String, List<String>>,
-    onUseWorkflow: (kotlinx.serialization.json.JsonObject, String?, Map<String, List<String>>?) -> Unit,
+    onUseWorkflow: (kotlinx.serialization.json.JsonObject, String?, Map<String, List<String>>?, Map<String, kotlinx.serialization.json.JsonElement>?) -> Unit,
     onOpenGallery: (List<MediaItem>, Int) -> Unit,
     onOpenTextOutputs: (String, Map<String, List<String>>) -> Unit
 ) {
@@ -557,7 +557,7 @@ private fun HistoryCardView(
                                                         val preferredName = (rec.workflowName?.takeIf { it.isNotBlank() }
                                                             ?: names[rec.promptId]
                                                             ?: ("工作流 " + rec.promptId.take(8))).replace("ComfyUI", "")
-                                            onUseWorkflow(cached, preferredName, rec.quickParams)  // ✅ 传入快速参数
+                                            onUseWorkflow(cached, preferredName, rec.quickParams, rec.parameterValues)  // ✅ 传入快速参数
                                             // 同步生成器的导入名称与来源
                                             // 通过共享 ImportViewModel 在 MainScreen 中传入，此处仅触发回调由上层设置
                                                     } else {
@@ -570,7 +570,7 @@ private fun HistoryCardView(
                                                                 val preferredName = (rec.workflowName?.takeIf { it.isNotBlank() }
                                                                     ?: names[rec.promptId]
                                                                     ?: ("工作流 " + rec.promptId.take(8))).replace("ComfyUI", "")
-                                                                onUseWorkflow(workflow, preferredName, rec.quickParams)  // ✅ 传入快速参数
+                                                                onUseWorkflow(workflow, preferredName, rec.quickParams, rec.parameterValues)  // ✅ 传入快速参数
                                                             }
                                                         }
                                                     }

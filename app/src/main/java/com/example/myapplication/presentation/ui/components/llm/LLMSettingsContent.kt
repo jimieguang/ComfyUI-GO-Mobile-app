@@ -33,6 +33,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.myapplication.util.LLMPreferences
 import com.example.myapplication.util.LLMProvider
+import com.example.myapplication.util.LLMApiStyle
 import com.example.myapplication.presentation.viewmodel.LLMAssistantViewModel
 import com.example.myapplication.data.model.TextOperationType
 import com.example.myapplication.data.model.CustomRule
@@ -44,7 +45,7 @@ import java.util.UUID
 @Composable
 fun LLMSettingsContent(
     currentConfig: LLMPreferences.LLMConfig,
-    onSave: (String, String, Float, Int, String) -> Unit,
+    onSave: (baseUrl: String, apiKey: String, modelName: String, temperature: Float, maxTokens: Int, apiStyle: String) -> Unit,
     onProviderChange: (String) -> Unit,
     llmViewModel: LLMAssistantViewModel,
     modifier: Modifier = Modifier
@@ -53,10 +54,12 @@ fun LLMSettingsContent(
     val disabledTypes by llmViewModel.disabledPresetTypes.collectAsState()
     val customRules by llmViewModel.customRules.collectAsState()
     
+    var baseUrl by remember { mutableStateOf(currentConfig.baseUrl) }
     var apiKey by remember { mutableStateOf(currentConfig.apiKey) }
     var modelName by remember { mutableStateOf(currentConfig.modelName) }
     var temperature by remember { mutableStateOf(currentConfig.temperature) }
     var maxTokens by remember { mutableStateOf(currentConfig.maxTokens) }
+    var apiStyle by remember { mutableStateOf(currentConfig.apiStyle) }
     var showPassword by remember { mutableStateOf(false) }
     var isTestingConnection by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<String?>(null) }
@@ -65,20 +68,16 @@ fun LLMSettingsContent(
     var dynamicModels by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var isLoadingModels by remember { mutableStateOf(false) }
     
-    // 默认的硬编码模型列表（根据服务商提供备选）
-    val defaultModels = remember(currentConfig.provider) {
-        when (currentConfig.provider) {
-            LLMProvider.ALIYUN -> listOf(
-                "qwen-turbo" to "通义千问-Turbo (推荐)",
+    // 百炼协议没有通用模型列表接口，给一份候选；OpenAI 兼容走动态拉取
+    val defaultModels = remember(apiStyle) {
+        if (apiStyle == LLMApiStyle.BAILIAN) {
+            listOf(
+                "qwen-turbo" to "通义千问-Turbo",
                 "qwen-plus" to "通义千问-Plus",
                 "qwen-max" to "通义千问-Max"
             )
-            LLMProvider.SILICON_FLOW -> listOf(
-                "Qwen/Qwen2-7B-Instruct" to "通义千问Qwen2-7B",
-                "deepseek-ai/DeepSeek-V2-Chat" to "DeepSeek-V2 (推荐)",
-                "meta-llama/Llama-3-8b-chat-hf" to "Llama3-8B"
-            )
-            else -> emptyList()
+        } else {
+            emptyList()
         }
     }
     
@@ -87,14 +86,16 @@ fun LLMSettingsContent(
 
     // 当外部传入的配置（尤其是服务商）变化时，同步更新内部状态
     LaunchedEffect(currentConfig) {
+        baseUrl = currentConfig.baseUrl
         apiKey = currentConfig.apiKey
         modelName = currentConfig.modelName
         temperature = currentConfig.temperature
         maxTokens = currentConfig.maxTokens
+        apiStyle = currentConfig.apiStyle
     }
     
     // 当服务商变化时，清除测试结果（避免显示旧服务商的测试状态）
-    LaunchedEffect(currentConfig.provider) {
+    LaunchedEffect(currentConfig.baseUrl, currentConfig.apiStyle) {
         testResult = null
         isTestingConnection = false
     }
@@ -110,10 +111,60 @@ fun LLMSettingsContent(
             fontWeight = FontWeight.Bold
         )
 
-        // 服务商选择
+        // 接口地址（自定义 provider）
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                text = "服务商",
+                text = "接口地址",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Medium
+            )
+            var urlFocused by remember { mutableStateOf(false) }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .border(
+                        width = 1.dp,
+                        color = if (urlFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .background(
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+            ) {
+                BasicTextField(
+                    value = baseUrl,
+                    onValueChange = { baseUrl = it },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 12.dp)
+                        .align(Alignment.CenterStart)
+                        .onFocusChanged { urlFocused = it.isFocused }
+                )
+                if (baseUrl.isBlank()) {
+                    Text(
+                        text = "例如 https://api.openai.com/v1",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = 12.dp)
+                    )
+                }
+            }
+        }
+
+        // 接口格式
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "接口格式",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Medium
             )
@@ -122,21 +173,21 @@ fun LLMSettingsContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                val providers = listOf(
-                    "阿里云百炼" to LLMProvider.ALIYUN,
-                    "硅基流动" to LLMProvider.SILICON_FLOW
+                val styles = listOf(
+                    "OpenAI 兼容" to LLMApiStyle.OPENAI,
+                    "百炼原生" to LLMApiStyle.BAILIAN
                 )
-                providers.forEach { (name, providerValue) ->
+                styles.forEach { (name, styleValue) ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.clickable(
                             indication = null,
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                        ) { onProviderChange(providerValue) }
+                        ) { apiStyle = styleValue }
                     ) {
                         RadioButton(
-                            selected = currentConfig.provider == providerValue,
-                            onClick = { onProviderChange(providerValue) }
+                            selected = apiStyle == styleValue,
+                            onClick = { apiStyle = styleValue }
                         )
                         Text(
                             text = name,
@@ -204,7 +255,7 @@ fun LLMSettingsContent(
                     // 占位提示
                     if (apiKey.isBlank()) {
                         Text(
-                            text = if (currentConfig.provider == LLMProvider.ALIYUN) "输入阿里百炼API Key" else "输入硅基流动API Key",
+                            text = "输入 API Key",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier
@@ -242,7 +293,7 @@ fun LLMSettingsContent(
                         // 使用协程确保保存完成后再测试
                         coroutineScope.launch {
                             // 先保存配置（等待完成）
-                            onSave(apiKey, finalModelName, temperature, maxTokens, currentConfig.provider)
+                            onSave(baseUrl, apiKey, finalModelName, temperature, maxTokens, apiStyle)
                             
                             // 等待一小段时间确保 DataStore 写入完成
                             delay(100)
@@ -306,11 +357,11 @@ fun LLMSettingsContent(
             
             var showModelDialog by remember { mutableStateOf(false) }
             
-            // 当服务商变化时，尝试动态加载模型列表
-            LaunchedEffect(currentConfig.provider, currentConfig.apiKey) {
-                if (currentConfig.provider == LLMProvider.SILICON_FLOW && currentConfig.apiKey.isNotBlank()) {
+            // 当接口地址/Key 变化时，尝试动态加载模型列表
+            LaunchedEffect(baseUrl, currentConfig.apiKey) {
+                if (apiStyle == LLMApiStyle.OPENAI && baseUrl.isNotBlank() && currentConfig.apiKey.isNotBlank()) {
                     isLoadingModels = true
-                    llmViewModel.fetchAvailableModels(currentConfig.provider) { success, fetchedModels ->
+                    llmViewModel.fetchAvailableModels(LLMProvider.CUSTOM) { success, fetchedModels ->
                         isLoadingModels = false
                         if (success && fetchedModels.isNotEmpty()) {
                             dynamicModels = fetchedModels
@@ -326,7 +377,7 @@ fun LLMSettingsContent(
                         }
                     }
                 } else {
-                    // 阿里云或未配置API Key时，清空动态列表，使用默认列表
+                    // 百炼协议或未配置时，清空动态列表，使用默认列表
                     dynamicModels = emptyList()
                     
                     // 验证当前模型是否在默认列表中
@@ -410,12 +461,54 @@ fun LLMSettingsContent(
                     onDismiss = { showModelDialog = false }
                 )
             }
+
+            // 手动填写模型名（未配置 Key 或列表拉取失败时仍可输入）
+            var modelFocused by remember { mutableStateOf(false) }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .border(
+                        width = 1.dp,
+                        color = if (modelFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .background(
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+            ) {
+                BasicTextField(
+                    value = modelName,
+                    onValueChange = { modelName = it },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 12.dp)
+                        .align(Alignment.CenterStart)
+                        .onFocusChanged { modelFocused = it.isFocused }
+                )
+                if (modelName.isBlank()) {
+                    Text(
+                        text = "输入模型名，例如 gpt-4o-mini",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = 12.dp)
+                    )
+                }
+            }
             
             // 调试信息：显示模型来源和数量
             if (!isLoadingModels) {
                 val debugInfo = if (dynamicModels.isNotEmpty()) {
                     "✓ 从API动态获取了 ${dynamicModels.size} 个模型"
-                } else if (currentConfig.provider == LLMProvider.SILICON_FLOW && currentConfig.apiKey.isNotBlank()) {
+                } else if (apiStyle == LLMApiStyle.OPENAI && baseUrl.isNotBlank() && currentConfig.apiKey.isNotBlank()) {
                     "⚠ API获取失败，使用默认 ${defaultModels.size} 个模型"
                 } else {
                     "📋 使用默认 ${defaultModels.size} 个模型"
@@ -856,7 +949,7 @@ fun LLMSettingsContent(
         // 保存按钮
         Button(
             onClick = {
-                onSave(apiKey, modelName, temperature, maxTokens, currentConfig.provider)
+                onSave(baseUrl, apiKey, modelName, temperature, maxTokens, apiStyle)
             },
             modifier = Modifier.fillMaxWidth().height(48.dp),
             enabled = apiKey.isNotBlank(),

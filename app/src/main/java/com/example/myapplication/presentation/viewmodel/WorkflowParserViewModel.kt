@@ -72,6 +72,8 @@ class WorkflowParserViewModel @Inject constructor(
         val maskEditingExistingPaths: List<DrawingPath> = emptyList(), // 已有的遮罩路径
         val showMaskEditor: Boolean = false, // 是否显示遮罩编辑器
         val shouldPreserveQuickParams: Boolean = false, // ✅ 标记是否应该保留快速参数（从历史/存储加载时）
+        // 从历史记录左滑恢复时，待注入的参数值（解析完成后一次性应用）
+        val pendingParameterValues: Map<String, kotlinx.serialization.json.JsonElement>? = null,
         // 🎥 视频上传进度
         val isUploadingVideo: Boolean = false,
         val videoUploadProgress: Float = 0f,
@@ -442,16 +444,30 @@ class WorkflowParserViewModel @Inject constructor(
                         .associate { it.id to SeedMode.FIXED }
 
                     _uiState.update { currentState ->
+                        // 从历史记录恢复时，把待注入的参数值合并进来（仅覆盖工作流中真实存在的参数）
+                        val pending = currentState.pendingParameterValues
+                        val mergedValues = if (pending.isNullOrEmpty()) {
+                            parameterValues
+                        } else {
+                            val valid = pending.filterKeys { parameterValues.containsKey(it) }
+                            android.util.Log.d(
+                                "WorkflowParserVM",
+                                "恢复历史参数: 待注入 ${pending.size} 个, 有效 ${valid.size} 个"
+                            )
+                            parameterValues + valid
+                        }
+
                         currentState.copy(
                             isParsing = false,
                             hasParsedWorkflow = true,
                             parseResult = parseResult,
-                            parameterValues = parameterValues,
+                            parameterValues = mergedValues,
                             nodeInstances = nodeInstances,
                             expandedGroups = expandedGroups,
                             showError = false,
                             errorMessage = "",
-                            seedModes = defaultSeedModes
+                            seedModes = defaultSeedModes,
+                            pendingParameterValues = null
                             // ✅ 不在这里重置标记，让标记在整个加载流程中保持
                         )
                     }
@@ -1064,6 +1080,22 @@ class WorkflowParserViewModel @Inject constructor(
             android.util.Log.d("WorkflowParserVM", "✅ 已恢复 ${restoredMap.size} 个节点的快速参数，并标记保留")
         }
         android.util.Log.d("WorkflowParserVM", "========== restoreQuickParams 完成 ==========")
+    }
+
+    /**
+     * 恢复执行时的参数值（用于从历史记录左滑复用工作流）。
+     *
+     * 必须在导入工作流之前调用：解析完成后会一次性合并进 parameterValues。
+     * 传 null 表示不恢复任何历史参数。
+     */
+    fun restoreParameterValues(values: Map<String, kotlinx.serialization.json.JsonElement>?) {
+        android.util.Log.d(
+            "WorkflowParserVM",
+            "restoreParameterValues: ${values?.size ?: 0} 项待恢复"
+        )
+        _uiState.update { state ->
+            state.copy(pendingParameterValues = values?.takeIf { it.isNotEmpty() })
+        }
     }
     
     /**
