@@ -527,7 +527,7 @@ class WorkflowExecutor @Inject constructor(
                     )
                     
                     // 启动History API轮询来监控执行状态
-                    val pollingResult = monitorExecutionWithPolling(serverUrl, promptId, workflow, startTime, quickParams)
+                    val pollingResult = monitorExecutionWithPolling(serverUrl, promptId, workflow, startTime, quickParams, parameterValues)
                     return Result.success(pollingResult)
                 }
                 
@@ -990,7 +990,8 @@ class WorkflowExecutor @Inject constructor(
         promptId: String,
         workflow: JsonObject,
         startTime: Long,
-        quickParams: Map<String, List<String>>? = null
+        quickParams: Map<String, List<String>>? = null,
+        parameterValues: Map<String, JsonElement> = emptyMap()
     ): ExecutionResult {
         Log.d(TAG, "开始History API轮询监控，promptId: $promptId")
         
@@ -1061,8 +1062,8 @@ class WorkflowExecutor @Inject constructor(
                                         textOutputs = result.outputTexts,
                                         workflowName = name,
                                         importSource = source,
-                                            quickParams = quickParams,
-                            parameterValues = sanitizeParameterValues(parameterValues)
+                                        quickParams = quickParams,
+                                        parameterValues = sanitizeParameterValues(parameterValues)
                                     ))
                                 } catch (e: Exception) {
                                     Log.e(TAG, "保存执行记录失败", e)

@@ -215,7 +215,7 @@ class LLMPreferences @Inject constructor(
             val legacyModel = when (legacyProvider) {
                 LLMProvider.SILICON_FLOW ->
                     preferences[KEY_SILICON_FLOW_MODEL_NAME] ?: ""
-                else -> preferences[KEY_ALIYUN_MODEL_NAME] ?: LLMProvider.DEFAULT_ALIYUN_MODEL
+                else -> preferences[KEY_ALIYUN_MODEL_NAME] ?: LLMPreferences.DEFAULT_ALIYUN_MODEL
             }
             val legacyBase = when (legacyProvider) {
                 LLMProvider.SILICON_FLOW ->
