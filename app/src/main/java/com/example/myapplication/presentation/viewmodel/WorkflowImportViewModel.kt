@@ -75,6 +75,8 @@ class WorkflowImportViewModel @Inject constructor(
             try {
                 folderStore.saveFolder(treeUri)
                 _uiState.update { it.copy(folderError = null) }
+                // 授权完成后立即列出该文件夹的工作流，省掉"再点一次"的步骤
+                openFolderPicker()
             } catch (e: Exception) {
                 _uiState.update { it.copy(folderError = "设置文件夹失败: ${e.message}") }
             }

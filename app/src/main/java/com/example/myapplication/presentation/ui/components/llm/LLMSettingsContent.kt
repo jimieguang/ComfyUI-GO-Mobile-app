@@ -68,18 +68,8 @@ fun LLMSettingsContent(
     var dynamicModels by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var isLoadingModels by remember { mutableStateOf(false) }
     
-    // 百炼协议没有通用模型列表接口，给一份候选；OpenAI 兼容走动态拉取
-    val defaultModels = remember(apiStyle) {
-        if (apiStyle == LLMApiStyle.BAILIAN) {
-            listOf(
-                "qwen-turbo" to "通义千问-Turbo",
-                "qwen-plus" to "通义千问-Plus",
-                "qwen-max" to "通义千问-Max"
-            )
-        } else {
-            emptyList()
-        }
-    }
+    // 统一走 OpenAI 兼容协议，模型列表一律动态拉取（拉取失败时手动填写）
+    val defaultModels: List<Pair<String, String>> = emptyList()
     
     // 实际使用的模型列表（优先使用动态加载的，否则使用默认）
     val models = if (dynamicModels.isNotEmpty()) dynamicModels else defaultModels
@@ -161,44 +151,6 @@ fun LLMSettingsContent(
             }
         }
 
-        // 接口格式
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = "接口格式",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Medium
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                val styles = listOf(
-                    "OpenAI 兼容" to LLMApiStyle.OPENAI,
-                    "百炼原生" to LLMApiStyle.BAILIAN
-                )
-                styles.forEach { (name, styleValue) ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable(
-                            indication = null,
-                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                        ) { apiStyle = styleValue }
-                    ) {
-                        RadioButton(
-                            selected = apiStyle == styleValue,
-                            onClick = { apiStyle = styleValue }
-                        )
-                        Text(
-                            text = name,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
-                    }
-                }
-            }
-        }
-        
         // API Key输入
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
@@ -377,14 +329,8 @@ fun LLMSettingsContent(
                         }
                     }
                 } else {
-                    // 百炼协议或未配置时，清空动态列表，使用默认列表
+                    // 未配置或非 OpenAI 兼容：清空动态列表，模型名由用户手动填写
                     dynamicModels = emptyList()
-                    
-                    // 验证当前模型是否在默认列表中
-                    val isCurrentModelValid = defaultModels.any { it.first == modelName }
-                    if (!isCurrentModelValid && defaultModels.isNotEmpty()) {
-                        modelName = defaultModels.first().first
-                    }
                 }
             }
             
@@ -462,48 +408,50 @@ fun LLMSettingsContent(
                 )
             }
 
-            // 手动填写模型名（未配置 Key 或列表拉取失败时仍可输入）
-            var modelFocused by remember { mutableStateOf(false) }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(40.dp)
-                    .border(
-                        width = 1.dp,
-                        color = if (modelFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .background(
-                        color = MaterialTheme.colorScheme.surface,
-                        shape = RoundedCornerShape(8.dp)
-                    )
-            ) {
-                BasicTextField(
-                    value = modelName,
-                    onValueChange = { modelName = it },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        color = MaterialTheme.colorScheme.onSurface
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            // 列表拉取不到时（未配置 Key / 端点不支持 /models）允许手动填写模型名
+            if (models.isEmpty() && !isLoadingModels) {
+                var modelFocused by remember { mutableStateOf(false) }
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 12.dp, end = 12.dp)
-                        .align(Alignment.CenterStart)
-                        .onFocusChanged { modelFocused = it.isFocused }
-                )
-                if (modelName.isBlank()) {
-                    Text(
-                        text = "输入模型名，例如 gpt-4o-mini",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        .height(40.dp)
+                        .border(
+                            width = 1.dp,
+                            color = if (modelFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .background(
+                            color = MaterialTheme.colorScheme.surface,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                ) {
+                    BasicTextField(
+                        value = modelName,
+                        onValueChange = { modelName = it },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 12.dp, end = 12.dp)
                             .align(Alignment.CenterStart)
-                            .padding(start = 12.dp)
+                            .onFocusChanged { modelFocused = it.isFocused }
                     )
+                    if (modelName.isBlank()) {
+                        Text(
+                            text = "输入模型名，例如 gpt-4o-mini",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .padding(start = 12.dp)
+                        )
+                    }
                 }
             }
-            
+
             // 调试信息：显示模型来源和数量
             if (!isLoadingModels) {
                 val debugInfo = if (dynamicModels.isNotEmpty()) {

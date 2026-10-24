@@ -1,7 +1,5 @@
 package com.example.myapplication.data.api
 
-import com.example.myapplication.data.model.BaiLianRequest
-import com.example.myapplication.data.model.BaiLianResponse
 import com.example.myapplication.data.model.OpenAIRequest
 import com.example.myapplication.data.model.OpenAIResponse
 import com.example.myapplication.data.model.ModelsListResponse
@@ -17,17 +15,6 @@ import retrofit2.http.Url
  * 支持多种API格式（阿里云百炼、OpenAI等）
  */
 interface BaiLianApiService {
-    
-    /**
-     * 阿里云百炼格式的文本生成接口
-     * @param url 完整的请求URL
-     * @param request 阿里云百炼格式的请求体
-     */
-    @POST
-    suspend fun generateTextAliyun(
-        @Url url: String,
-        @Body request: BaiLianRequest
-    ): Response<BaiLianResponse>
     
     /**
      * OpenAI兼容格式的文本生成接口（用于硅基流动等）

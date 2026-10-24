@@ -5,7 +5,6 @@ import com.example.myapplication.data.api.BaiLianApiService
 import com.example.myapplication.data.model.*
 import com.example.myapplication.util.LLMPreferences
 import com.example.myapplication.util.LLMProvider
-import com.example.myapplication.util.LLMApiStyle
 import kotlinx.coroutines.flow.first
 import retrofit2.Response
 import javax.inject.Inject
@@ -57,38 +56,18 @@ class LLMRepository @Inject constructor(
                 BaiLianMessage(role = "user", content = userPrompt)
             )
             
-            // 根据接口协议处理不同的请求和响应
-            when (config.apiStyle) {
-                LLMApiStyle.BAILIAN -> {
-                    val url = buildBailianUrl(config.baseUrl)
-                    val request = BaiLianRequest(
-                        model = config.modelName,
-                        input = BaiLianInput(messages = messages),
-                        parameters = BaiLianParameters(
-                            resultFormat = "message",
-                            temperature = config.temperature,
-                            maxTokens = config.maxTokens
-                        )
-                    )
-                    Log.d(TAG, "发送请求到 [百炼协议], URL: $url, 模型: ${config.modelName}")
-                    
-                    val response = apiService.generateTextAliyun(url = url, request = request)
-                    return handleAliyunResponse(response)
-                }
-                else -> {
-                    val url = buildOpenAiUrl(config.baseUrl)
-                    val request = OpenAIRequest(
-                        model = config.modelName,
-                        messages = messages,
-                        temperature = config.temperature,
-                        maxTokens = config.maxTokens
-                    )
-                    Log.d(TAG, "发送请求到 [OpenAI 兼容], URL: $url, 模型: ${config.modelName}")
-                    
-                    val response = apiService.generateTextOpenAI(url = url, request = request)
-                    return handleOpenAIResponse(response)
-                }
-            }
+            // 统一走 OpenAI 兼容协议（百炼原生协议已移除）
+            val url = buildOpenAiUrl(config.baseUrl)
+            val request = OpenAIRequest(
+                model = config.modelName,
+                messages = messages,
+                temperature = config.temperature,
+                maxTokens = config.maxTokens
+            )
+            Log.d(TAG, "发送请求到 [OpenAI 兼容], URL: $url, 模型: ${config.modelName}")
+
+            val response = apiService.generateTextOpenAI(url = url, request = request)
+            return handleOpenAIResponse(response)
             
         } catch (e: Exception) {
             Log.e(TAG, "文本处理异常", e)
@@ -101,11 +80,6 @@ class LLMRepository @Inject constructor(
      */
     private fun normalizeBase(baseUrl: String): String = baseUrl.trim().trimEnd('/')
 
-    /**
-     * 百炼协议完整地址
-     */
-    private fun buildBailianUrl(baseUrl: String): String =
-        "${normalizeBase(baseUrl)}/api/v1/services/aigc/text-generation/generation"
 
     /**
      * OpenAI 兼容完整地址：已含 /chat/completions 的直接用，否则补 /chat/completions
@@ -146,54 +120,26 @@ class LLMRepository @Inject constructor(
                 BaiLianMessage(role = "user", content = "Hi")
             )
             
-            when (config.apiStyle) {
-                LLMApiStyle.BAILIAN -> {
-                    val url = buildBailianUrl(config.baseUrl)
-                    val request = BaiLianRequest(
-                        model = config.modelName,
-                        input = BaiLianInput(messages = messages),
-                        parameters = BaiLianParameters(
-                            resultFormat = "message",
-                            maxTokens = 10
-                        )
-                    )
-                    val response = apiService.generateTextAliyun(url = url, request = request)
-                    
-                    if (response.isSuccessful && response.body() != null) {
-                        val body = response.body()!!
-                        if (body.code == null && body.output != null) {
-                            return Result.success("连接成功！")
-                        } else {
-                            return Result.failure(Exception("API错误: ${body.message}"))
-                        }
-                    } else {
-                        val errorBody = response.errorBody()?.string()
-                        return Result.failure(Exception(getErrorMessage(response.code(), errorBody)))
-                    }
+            val url = buildOpenAiUrl(config.baseUrl)
+            val request = OpenAIRequest(
+                model = config.modelName,
+                messages = messages,
+                maxTokens = 10
+            )
+            val response = apiService.generateTextOpenAI(url = url, request = request)
+
+            if (response.isSuccessful && response.body() != null) {
+                val body = response.body()!!
+                if (body.error == null && body.choices != null) {
+                    return Result.success("连接成功！")
+                } else {
+                    return Result.failure(Exception("API错误: ${body.error?.message}"))
                 }
-                else -> {
-                    val url = buildOpenAiUrl(config.baseUrl)
-                    val request = OpenAIRequest(
-                        model = config.modelName,
-                        messages = messages,
-                        maxTokens = 10
-                    )
-                    val response = apiService.generateTextOpenAI(url = url, request = request)
-                    
-                    if (response.isSuccessful && response.body() != null) {
-                        val body = response.body()!!
-                        if (body.error == null && body.choices != null) {
-                            return Result.success("连接成功！")
-                        } else {
-                            return Result.failure(Exception("API错误: ${body.error?.message}"))
-                        }
-                    } else {
-                        val errorBody = response.errorBody()?.string()
-                        return Result.failure(Exception(getErrorMessage(response.code(), errorBody)))
-                    }
-                }
+            } else {
+                val errorBody = response.errorBody()?.string()
+                return Result.failure(Exception(getErrorMessage(response.code(), errorBody)))
             }
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "测试连接失败", e)
             Result.failure(e)
@@ -229,53 +175,6 @@ class LLMRepository @Inject constructor(
                     "API调用失败 (代码: $code)"
                 }
             }
-        }
-    }
-    
-    /**
-     * 处理阿里云百炼的响应
-     */
-    private fun handleAliyunResponse(response: Response<BaiLianResponse>): Result<ProcessResult> {
-        if (response.isSuccessful) {
-            val body = response.body()
-            if (body != null) {
-                // 检查错误响应
-                if (body.code != null && body.message != null) {
-                    Log.e(TAG, "API返回错误: ${body.code} - ${body.message}")
-                    return Result.failure(Exception("API错误: ${body.message}"))
-                }
-                
-                // 提取内容
-                val content = when {
-                    body.output?.choices?.isNotEmpty() == true -> {
-                        body.output.choices.firstOrNull()?.message?.content
-                    }
-                    body.output?.text != null -> {
-                        body.output.text
-                    }
-                    else -> null
-                }
-                
-                if (content != null && content.isNotBlank()) {
-                    Log.d(TAG, "API调用成功，返回文本长度: ${content.length}")
-                    return Result.success(
-                        ProcessResult(
-                            outputText = content.trim(),
-                            usage = body.usage,
-                            requestId = body.requestId ?: ""
-                        )
-                    )
-                } else {
-                    Log.e(TAG, "API返回内容为空")
-                    return Result.failure(Exception("API返回内容为空"))
-                }
-            } else {
-                return Result.failure(Exception("响应体为空"))
-            }
-        } else {
-            val errorBody = response.errorBody()?.string()
-            Log.e(TAG, "API调用失败: ${response.code()}, 错误: $errorBody")
-            return Result.failure(Exception(getErrorMessage(response.code(), errorBody)))
         }
     }
     
@@ -336,15 +235,6 @@ class LLMRepository @Inject constructor(
     suspend fun getAvailableModels(provider: String): Result<List<Pair<String, String>>> {
         return try {
             val config = preferences.getConfig().first()
-
-            // 百炼协议没有通用的模型列表接口，返回内置候选
-            if (config.apiStyle == LLMApiStyle.BAILIAN) {
-                return Result.success(listOf(
-                    "qwen-turbo" to "通义千问-Turbo",
-                    "qwen-plus" to "通义千问-Plus",
-                    "qwen-max" to "通义千问-Max"
-                ))
-            }
 
             if (config.apiKey.isBlank()) {
                 Log.d(TAG, "API Key 未配置，跳过模型列表拉取")

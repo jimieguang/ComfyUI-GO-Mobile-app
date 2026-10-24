@@ -11,12 +11,15 @@ android {
     namespace = "com.example.myapplication"
     compileSdk = 36
 
+    // CI 用 run_number 覆盖版本号，保证每次构建都比上一次新，可覆盖安装且保留数据
+    val versionCodeOverride = (project.findProperty("versionCodeOverride") as String?)?.toIntOrNull()
+
     defaultConfig {
         applicationId = "com.example.myapplication"
         minSdk = 28
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = versionCodeOverride ?: 1
+        versionName = if (versionCodeOverride != null) "1.0.$versionCodeOverride" else "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

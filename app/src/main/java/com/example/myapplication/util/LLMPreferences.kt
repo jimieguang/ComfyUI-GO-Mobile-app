@@ -32,12 +32,11 @@ object LLMProvider {
 
 /**
  * 接口协议格式
- * - OPENAI：绝大多数第三方端点（OpenRouter / DeepSeek / Moonshot / one-api / LM Studio / Ollama）
- * - BAILIAN：阿里百炼原生协议（/api/v1/services/aigc/text-generation/generation）
+ * 现已统一为 OpenAI 兼容协议（百炼原生协议支持已移除）。
+ * 保留该常量对象只为兼容既有调用点与历史数据。
  */
 object LLMApiStyle {
     const val OPENAI = "openai"
-    const val BAILIAN = "bailian"
 }
 
 // DataStore实例
@@ -125,8 +124,8 @@ class LLMPreferences @Inject constructor(
             preferences[KEY_CUSTOM_BASE_URL] = baseUrl.trim()
             preferences[KEY_CUSTOM_API_KEY] = apiKey
             preferences[KEY_CUSTOM_MODEL_NAME] = modelName.trim()
-            preferences[KEY_CUSTOM_API_STYLE] =
-                if (apiStyle == LLMApiStyle.BAILIAN) LLMApiStyle.BAILIAN else LLMApiStyle.OPENAI
+            // 百炼协议已移除，历史值统一归一到 OpenAI 兼容
+            preferences[KEY_CUSTOM_API_STYLE] = LLMApiStyle.OPENAI
         }
     }
 
@@ -226,9 +225,8 @@ class LLMPreferences @Inject constructor(
             val apiKey = customKey.ifBlank { legacyKey }
             val baseUrl = customBase.ifBlank { legacyBase }
             val modelName = customModel.ifBlank { legacyModel }
-            val apiStyle = customStyle.ifBlank {
-                if (legacyProvider == LLMProvider.SILICON_FLOW) LLMApiStyle.OPENAI else LLMApiStyle.BAILIAN
-            }
+            // 百炼协议已移除：无论历史存的是什么，一律按 OpenAI 兼容处理
+            val apiStyle = LLMApiStyle.OPENAI
 
             LLMConfig(
                 provider = LLMProvider.CUSTOM,
@@ -237,7 +235,7 @@ class LLMPreferences @Inject constructor(
                 temperature = preferences[KEY_TEMPERATURE] ?: DEFAULT_TEMPERATURE,
                 maxTokens = preferences[KEY_MAX_TOKENS] ?: DEFAULT_MAX_TOKENS,
                 baseUrl = baseUrl,
-                apiStyle = if (apiStyle == LLMApiStyle.BAILIAN) LLMApiStyle.BAILIAN else LLMApiStyle.OPENAI
+                apiStyle = apiStyle
             )
         }
     }
