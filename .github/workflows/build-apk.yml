@@ -47,7 +47,7 @@ jobs:
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Build debug
-        if: ${{ inputs.build_debug }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_debug }}
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Sign release APK
@@ -75,7 +75,7 @@ jobs:
           "${BT}/apksigner" verify --print-certs dist/app-release-signed.apk
 
       - name: Collect debug APK
-        if: ${{ inputs.build_debug }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_debug }}
         run: |
           set -euo pipefail
           mkdir -p dist
