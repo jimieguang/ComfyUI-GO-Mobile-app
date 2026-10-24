@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -70,6 +71,9 @@ class LLMPreferences @Inject constructor(
         private val KEY_SILICON_FLOW_API_KEY = stringPreferencesKey("silicon_flow_api_key")
         private val KEY_SILICON_FLOW_MODEL_NAME = stringPreferencesKey("silicon_flow_model_name")
         private val KEY_SILICON_FLOW_BASE_URL = stringPreferencesKey("silicon_flow_base_url")
+
+        // 会话 ID（供要求 x-opencode-session 的端点使用，首次访问时生成并固定）
+        private val KEY_SESSION_ID = stringPreferencesKey("llm_session_id")
 
         // 通用配置键
         private val KEY_TEMPERATURE = floatPreferencesKey("temperature")
@@ -147,6 +151,26 @@ class LLMPreferences @Inject constructor(
     }
 
     /**
+     * 获取稳定的会话 ID。
+     *
+     * OpenCode Go 一类端点要求每个对话带 x-opencode-session，缺失会返回
+     * 400 MissingSessionID。这里生成一次并持久化，保证同一设备后续请求
+     * 落在同一会话上；清空配置时会一并重置。
+     */
+    suspend fun getOrCreateSessionId(): String {
+        val existing = dataStore.data.first()[KEY_SESSION_ID]
+        if (!existing.isNullOrBlank()) return existing
+        val generated = java.util.UUID.randomUUID().toString()
+        dataStore.edit { prefs ->
+            if (prefs[KEY_SESSION_ID].isNullOrBlank()) {
+                prefs[KEY_SESSION_ID] = generated
+            }
+        }
+        // 并发首启时以实际写入值为准
+        return dataStore.data.first()[KEY_SESSION_ID] ?: generated
+    }
+
+    /**
      * 是否有 API Key
      */
     fun hasApiKey(provider: String = LLMProvider.CUSTOM): Flow<Boolean> {
@@ -176,6 +200,7 @@ class LLMPreferences @Inject constructor(
             preferences.remove(KEY_SILICON_FLOW_BASE_URL)
             preferences.remove(KEY_TEMPERATURE)
             preferences.remove(KEY_MAX_TOKENS)
+            preferences.remove(KEY_SESSION_ID)
         }
     }
 

@@ -42,12 +42,19 @@ object LLMModule {
 
             val originalRequest = chain.request()
 
-            // 添加 Authorization 头
-            val authRequest = originalRequest.newBuilder()
+            val builder = originalRequest.newBuilder()
                 .header("Authorization", "Bearer ${config.apiKey}")
-                .build()
 
-            chain.proceed(authRequest)
+            // OpenCode Go 要求每个对话带稳定的 x-opencode-session，
+            // 缺失时服务端直接返回 400 MissingSessionID。
+            // 只对需要它的端点注入，避免把无意义的头带给其它兼容服务。
+            val host = originalRequest.url.host.lowercase()
+            if (host.endsWith("opencode.ai")) {
+                val sessionId = runBlocking { preferences.getOrCreateSessionId() }
+                builder.header("x-opencode-session", sessionId)
+            }
+
+            chain.proceed(builder.build())
         }
     }
 
