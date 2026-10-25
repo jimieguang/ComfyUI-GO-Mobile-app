@@ -334,7 +334,26 @@ class WorkflowParserViewModel @Inject constructor(
             
             // 如果工作流没有变更且已有解析结果，跳过解析
             if (currentState.currentWorkflowHash == workflowHash && currentState.hasParsedWorkflow) {
-                android.util.Log.d("WorkflowParserVM", "✅ 工作流相同且已解析，跳过解析")
+                // 🔧 同一个模型/同一份工作流再次从历史恢复时，解析会被这里跳过，
+                // 导致 restoreParameterValues 注入的"当时参数"永远不生效。
+                // 修法：跳过解析时直接把待注入值合并进当前 parameterValues。
+                val pendingOnSkip = currentState.pendingParameterValues
+                if (!pendingOnSkip.isNullOrEmpty()) {
+                    val validOnSkip = pendingOnSkip.filterKeys { currentState.parameterValues.containsKey(it) }
+                    android.util.Log.d(
+                        "WorkflowParserVM",
+                        "同工作流跳过解析，直接注入历史参数 ${validOnSkip.size}/${pendingOnSkip.size}"
+                    )
+                    _uiState.update { state ->
+                        state.copy(
+                            parameterValues = state.parameterValues + validOnSkip,
+                            pendingParameterValues = null,
+                            shouldPreserveQuickParams = false
+                        )
+                    }
+                } else {
+                    android.util.Log.d("WorkflowParserVM", "✅ 工作流相同且已解析，跳过解析")
+                }
                 // ✅ 不重置标记，让标记保持到真正需要清空时
                 android.util.Log.d("WorkflowParserVM", "========== parseWorkflow 跳过 ==========")
                 return@launch
@@ -1029,7 +1048,9 @@ class WorkflowParserViewModel @Inject constructor(
     }
 
     fun clearQuickParams() {
-        _uiState.update { it.copy(quickParamsByNode = emptyMap()) }
+        // 直接导入新工作流时一并丢弃"从历史待注入"的值，
+        // 避免旧记录的参数渗透到无关的工作流里
+        _uiState.update { it.copy(quickParamsByNode = emptyMap(), pendingParameterValues = null) }
     }
 
     fun clearQuickParamsOfNode(nodeId: String) {
@@ -1094,7 +1115,29 @@ class WorkflowParserViewModel @Inject constructor(
             "restoreParameterValues: ${values?.size ?: 0} 项待恢复"
         )
         _uiState.update { state ->
-            state.copy(pendingParameterValues = values?.takeIf { it.isNotEmpty() })
+            val pending = values?.takeIf { it.isNotEmpty() }
+            if (pending == null) {
+                state.copy(pendingParameterValues = null)
+            } else {
+                // 🔧 同一模型/同一工作流再次从历史恢复时，LaunchedEffect 的 key 未变，
+                // parseWorkflow 根本不会被调用，光挂 pending 就永远不会生效
+                // （表现：提示词/尺寸不替换）。因此已解析状态下立即合并一份。
+                // 但 pending 必须保留：换成另一份工作流时 parse 仍要把值注入新参数表。
+                val eager = if (state.hasParsedWorkflow && state.parameterValues.isNotEmpty()) {
+                    val valid = pending.filterKeys { state.parameterValues.containsKey(it) }
+                    android.util.Log.d(
+                        "WorkflowParserVM",
+                        "已解析状态，先立即注入历史参数 ${valid.size}/${pending.size}"
+                    )
+                    state.parameterValues + valid
+                } else {
+                    state.parameterValues
+                }
+                state.copy(
+                    parameterValues = eager,
+                    pendingParameterValues = pending
+                )
+            }
         }
     }
     

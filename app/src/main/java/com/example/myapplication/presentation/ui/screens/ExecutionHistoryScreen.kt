@@ -493,26 +493,12 @@ private fun HistoryCardView(
                             thumbUrl = outputs[rec.promptId]?.firstOrNull(),
                             isLoaded = isLoaded,
                             onThumbClick = {
-                                // 合并图片和视频为统一的媒体列表
-                                val imageItems = outputs[rec.promptId]?.map { MediaItem.Image(it) } ?: emptyList()
-                                val videoItems = rec.localVideoPaths
-                                    .filter { it.isNotBlank() }
-                                    .map { path ->
-                                        val lower = path.trim().lowercase()
-                                        val isGifLike = lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
-                                        if (isGifLike) MediaItem.Image("file://$path") else MediaItem.Video(path)
-                                    }
-                                val audioItems =
-                                    rec.localAudioPaths
-                                        .filter { it.isNotBlank() }
-                                        .map { path -> MediaItem.Audio("file://$path") }
-                                        .ifEmpty {
-                                            rec.audioUrls.map { MediaItem.Audio(it) }
-                                        }
-                                val allMediaItems = imageItems + videoItems + audioItems
-                                
-                                if (allMediaItems.isNotEmpty()) {
-                                    onOpenGallery(allMediaItems, 0)
+                                // 🔧 画廊改为跨记录拼接：只有一张图时也能左右滑到相邻任务的结果
+                                val ordered = records.sortedByDescending { it.timestamp }
+                                val target = com.example.myapplication.util.HistoryMediaUtils
+                                    .buildGalleryTarget(ordered, outputs, rec)
+                                if (target.items.isNotEmpty()) {
+                                    onOpenGallery(target.items, target.startIndex)
                                 }
                             },
                         onTextClick = {
@@ -647,7 +633,6 @@ private fun WaterfallView(
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(recordItems) { (rec, urls) ->
-                    val imageItems = urls.map { MediaItem.Image(it) }
                     val videoItems = rec.localVideoPaths
                         .filter { it.isNotBlank() }
                         .map { path ->
@@ -660,7 +645,6 @@ private fun WaterfallView(
                             .filter { it.isNotBlank() }
                             .map { path -> MediaItem.Audio("file://$path") }
                             .ifEmpty { rec.audioUrls.map { MediaItem.Audio(it) } }
-                    val allMediaItems = imageItems + videoItems + audioItems
                     val recordTitle = (rec.workflowName?.takeIf { it.isNotBlank() } ?: ("工作流 " + rec.promptId.take(8))).replace("ComfyUI", "")
                     val hasTexts = rec.textOutputs.isNotEmpty()
 
@@ -694,7 +678,10 @@ private fun WaterfallView(
                                                     interactionSource = remember { MutableInteractionSource() },
                                                     indication = LocalIndication.current
                                                 ) {
-                                                    onOpenGallery(allMediaItems, 0)
+                                                    // 🔧 跨记录拼接：单图任务也能滑到相邻任务
+                                                    val galleryTarget = com.example.myapplication.util.HistoryMediaUtils
+                                                        .buildGalleryTarget(orderedRecords, outputs, rec)
+                                                    onOpenGallery(galleryTarget.items, galleryTarget.startIndex)
                                                 }
                                         ) {
                                             with(subScope) {
@@ -777,7 +764,12 @@ private fun WaterfallView(
                                     .clickable(
                                         interactionSource = remember { MutableInteractionSource() },
                                         indication = LocalIndication.current
-                                    ) { onOpenGallery(allMediaItems, 0) },
+                                    ) {
+                                        // 纯音频记录：退回自身媒体列表（含音频）
+                                        val galleryTarget = com.example.myapplication.util.HistoryMediaUtils
+                                            .buildGalleryTarget(orderedRecords, outputs, rec)
+                                        onOpenGallery(galleryTarget.items, galleryTarget.startIndex)
+                                    },
                                 colors = CardDefaults.cardColors(containerColor = Color(0xFFE0EFFF))
                             ) {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -830,7 +822,12 @@ private fun WaterfallView(
                                     .clickable(
                                         interactionSource = remember { MutableInteractionSource() },
                                         indication = LocalIndication.current
-                                    ) { onOpenGallery(allMediaItems, 0) },
+                                    ) {
+                                        // 🔧 跨记录拼接：视频也参与左右滑动序列
+                                        val galleryTarget = com.example.myapplication.util.HistoryMediaUtils
+                                            .buildGalleryTarget(orderedRecords, outputs, rec)
+                                        onOpenGallery(galleryTarget.items, galleryTarget.startIndex)
+                                    },
                                 colors = CardDefaults.cardColors(containerColor = Color(0xFFE0EFFF))
                             ) {
                                 Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
