@@ -74,6 +74,9 @@ class WorkflowParserViewModel @Inject constructor(
         val shouldPreserveQuickParams: Boolean = false, // ✅ 标记是否应该保留快速参数（从历史/存储加载时）
         // 从历史记录左滑恢复时，待注入的参数值（解析完成后一次性应用）
         val pendingParameterValues: Map<String, kotlinx.serialization.json.JsonElement>? = null,
+        // 🔧 待注入值绑定的工作流哈希：只在同一个工作流上生效，
+        // 避免旧记录的参数渗透到之后导入的无关工作流
+        val pendingParameterValuesHash: String? = null,
         // 🎥 视频上传进度
         val isUploadingVideo: Boolean = false,
         val videoUploadProgress: Float = 0f,
@@ -338,7 +341,9 @@ class WorkflowParserViewModel @Inject constructor(
                 // 导致 restoreParameterValues 注入的"当时参数"永远不生效。
                 // 修法：跳过解析时直接把待注入值合并进当前 parameterValues。
                 val pendingOnSkip = currentState.pendingParameterValues
-                if (!pendingOnSkip.isNullOrEmpty()) {
+                val pendingHashOnSkip = currentState.pendingParameterValuesHash
+                val pendingMatches = pendingHashOnSkip == null || pendingHashOnSkip == workflowHash
+                if (!pendingOnSkip.isNullOrEmpty() && pendingMatches) {
                     val validOnSkip = pendingOnSkip.filterKeys { currentState.parameterValues.containsKey(it) }
                     android.util.Log.d(
                         "WorkflowParserVM",
@@ -348,10 +353,21 @@ class WorkflowParserViewModel @Inject constructor(
                         state.copy(
                             parameterValues = state.parameterValues + validOnSkip,
                             pendingParameterValues = null,
+                            pendingParameterValuesHash = null,
                             shouldPreserveQuickParams = false
                         )
                     }
                 } else {
+                    if (!pendingOnSkip.isNullOrEmpty()) {
+                        // 待注入值属于另一份工作流，丢弃，避免误用
+                        android.util.Log.d(
+                            "WorkflowParserVM",
+                            "待注入参数属于其他工作流（$pendingHashOnSkip ≠ $workflowHash），丢弃"
+                        )
+                        _uiState.update { state ->
+                            state.copy(pendingParameterValues = null, pendingParameterValuesHash = null)
+                        }
+                    }
                     android.util.Log.d("WorkflowParserVM", "✅ 工作流相同且已解析，跳过解析")
                 }
                 // ✅ 不重置标记，让标记保持到真正需要清空时
@@ -465,7 +481,9 @@ class WorkflowParserViewModel @Inject constructor(
                     _uiState.update { currentState ->
                         // 从历史记录恢复时，把待注入的参数值合并进来（仅覆盖工作流中真实存在的参数）
                         val pending = currentState.pendingParameterValues
-                        val mergedValues = if (pending.isNullOrEmpty()) {
+                        val pendingHash = currentState.pendingParameterValuesHash
+                        val pendingMatches = pendingHash == null || pendingHash == workflowHash
+                        val mergedValues = if (pending.isNullOrEmpty() || !pendingMatches) {
                             parameterValues
                         } else {
                             val valid = pending.filterKeys { parameterValues.containsKey(it) }
@@ -486,7 +504,8 @@ class WorkflowParserViewModel @Inject constructor(
                             showError = false,
                             errorMessage = "",
                             seedModes = defaultSeedModes,
-                            pendingParameterValues = null
+                            pendingParameterValues = null,
+                            pendingParameterValuesHash = null
                             // ✅ 不在这里重置标记，让标记在整个加载流程中保持
                         )
                     }
@@ -1050,7 +1069,13 @@ class WorkflowParserViewModel @Inject constructor(
     fun clearQuickParams() {
         // 直接导入新工作流时一并丢弃"从历史待注入"的值，
         // 避免旧记录的参数渗透到无关的工作流里
-        _uiState.update { it.copy(quickParamsByNode = emptyMap(), pendingParameterValues = null) }
+        _uiState.update {
+            it.copy(
+                quickParamsByNode = emptyMap(),
+                pendingParameterValues = null,
+                pendingParameterValuesHash = null
+            )
+        }
     }
 
     fun clearQuickParamsOfNode(nodeId: String) {
@@ -1109,34 +1134,48 @@ class WorkflowParserViewModel @Inject constructor(
      * 必须在导入工作流之前调用：解析完成后会一次性合并进 parameterValues。
      * 传 null 表示不恢复任何历史参数。
      */
-    fun restoreParameterValues(values: Map<String, kotlinx.serialization.json.JsonElement>?) {
+    fun restoreParameterValues(
+        values: Map<String, kotlinx.serialization.json.JsonElement>?,
+        targetWorkflow: JsonObject? = null
+    ) {
+        // 🔧 与 parseWorkflow 用同一套哈希算法，把待注入值绑定到这份工作流上，
+        // 防止旧记录的参数在之后导入的无关工作流里被误应用
+        val targetHash = targetWorkflow?.let { it.toString().hashCode().toString() }
         android.util.Log.d(
             "WorkflowParserVM",
-            "restoreParameterValues: ${values?.size ?: 0} 项待恢复"
+            "restoreParameterValues: ${values?.size ?: 0} 项待恢复, targetHash=$targetHash"
         )
         _uiState.update { state ->
             val pending = values?.takeIf { it.isNotEmpty() }
             if (pending == null) {
-                state.copy(pendingParameterValues = null)
+                state.copy(pendingParameterValues = null, pendingParameterValuesHash = null)
             } else {
-                // 🔧 同一模型/同一工作流再次从历史恢复时，LaunchedEffect 的 key 未变，
-                // parseWorkflow 根本不会被调用，光挂 pending 就永远不会生效
-                // （表现：提示词/尺寸不替换）。因此已解析状态下立即合并一份。
-                // 但 pending 必须保留：换成另一份工作流时 parse 仍要把值注入新参数表。
-                val eager = if (state.hasParsedWorkflow && state.parameterValues.isNotEmpty()) {
+                // 🔧 同一模型/同一工作流再次从历史恢复时，LaunchedEffect 的 key 未变、
+                // parseWorkflow 因哈希相同直接 return，光挂 pending 永远不会生效
+                // （表现：提示词/尺寸不替换）。因此已解析且正是同一份工作流时先合并一次。
+                // 但 pending 必须保留：若是另一份工作流，parse 时仍需注入。
+                val sameWorkflow = targetHash == null || state.currentWorkflowHash == targetHash
+                val canApplyNow = sameWorkflow && state.hasParsedWorkflow && state.parameterValues.isNotEmpty()
+                if (canApplyNow) {
                     val valid = pending.filterKeys { state.parameterValues.containsKey(it) }
                     android.util.Log.d(
                         "WorkflowParserVM",
-                        "已解析状态，先立即注入历史参数 ${valid.size}/${pending.size}"
+                        "已解析同一工作流，立即注入历史参数 ${valid.size}/${pending.size}（并清空待注入）"
                     )
-                    state.parameterValues + valid
+                    // 已当场消费，必须清空：否则这份旧参数会一直挂着，
+                    // 在之后重新导入同一工作流时把用户手改的值又覆盖回去
+                    state.copy(
+                        parameterValues = state.parameterValues + valid,
+                        pendingParameterValues = null,
+                        pendingParameterValuesHash = null
+                    )
                 } else {
-                    state.parameterValues
+                    // 尚未解析或不是当前工作流：留着，等 parseWorkflow 按哈希匹配后注入
+                    state.copy(
+                        pendingParameterValues = pending,
+                        pendingParameterValuesHash = targetHash
+                    )
                 }
-                state.copy(
-                    parameterValues = eager,
-                    pendingParameterValues = pending
-                )
             }
         }
     }

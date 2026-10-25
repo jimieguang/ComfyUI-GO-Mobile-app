@@ -289,7 +289,8 @@ fun MainScreen() {
                         // ✅ 先恢复快速参数配置（在导入之前）
                         sharedParserViewModel.restoreQuickParams(quickParams)
                         // ✅ 恢复执行当时的参数值（尺寸/提示词/种子等），解析完成后注入
-                        sharedParserViewModel.restoreParameterValues(parameterValues)
+                        // 传入目标工作流，使待注入值只在这份工作流上生效
+                        sharedParserViewModel.restoreParameterValues(parameterValues, workflowJson)
                         sharedImportViewModel.importFromCurrentText()
                         navController.navigate(ComfyUIDestination.WORKFLOW_GENERATOR.route) {
                             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
