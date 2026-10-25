@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 只暴露更新用的缓存目录，避免把整个缓存区暴露给安装器 -->
+    <cache-path
+        name="updates"
+        path="updates/" />
+</paths>

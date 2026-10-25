@@ -11,7 +11,7 @@ on:
     branches: [ main ]
 
 permissions:
-  contents: read
+  contents: write   # 发布 Release 需要写权限
 
 jobs:
   build:
@@ -103,3 +103,45 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Write version manifest
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          cd dist
+          VC="${{ github.run_number }}"
+          # 用 python 生成 JSON：提交信息可能含引号/换行，直接用 heredoc 拼接会破坏格式
+          VC="$VC" python3 - <<'PY'
+          import json, os
+          vc = os.environ["VC"]
+          notes = (os.environ.get("COMMIT_MSG") or "手动构建").strip().splitlines()[0][:200]
+          data = {
+              "versionCode": int(vc),
+              "versionName": f"1.0.{vc}",
+              "apkAsset": "app-release-signed.apk",
+              "shaAsset": "SHA256SUMS.txt",
+              "notes": notes,
+          }
+          with open("version.json", "w", encoding="utf-8") as f:
+              json.dump(data, f, ensure_ascii=False, indent=2)
+          PY
+          cat version.json
+
+      # 应用内更新从这里取：releases/latest/download/version.json
+      # 必须是正式 Release（非 draft / 非 prerelease），否则 latest 不指向它
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          TAG="v1.0.${{ github.run_number }}"
+          NOTES="$(printf '%s' "${COMMIT_MSG:-手动构建}" | head -n 1 | cut -c1-200)"
+          gh release create "${TAG}" \
+            --repo "${{ github.repository }}" \
+            --title "ComfyUI GO v1.0.${{ github.run_number }}" \
+            --notes "${NOTES}" \
+            dist/app-release-signed.apk \
+            dist/SHA256SUMS.txt \
+            dist/version.json

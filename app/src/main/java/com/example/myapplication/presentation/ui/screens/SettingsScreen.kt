@@ -17,7 +17,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.myapplication.presentation.viewmodel.ServerConnectionViewModel
 import com.example.myapplication.presentation.viewmodel.LLMAssistantViewModel
+import com.example.myapplication.presentation.viewmodel.UpdateViewModel
 import com.example.myapplication.data.model.ConnectionState
+import com.example.myapplication.presentation.ui.components.AppUpdateCard
 import com.example.myapplication.presentation.ui.components.ServerConnectionCard
 import com.example.myapplication.presentation.ui.components.SystemStatsCard
 import com.example.myapplication.presentation.ui.components.llm.LLMSettingsContent
@@ -34,11 +36,20 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit,
     serverViewModel: ServerConnectionViewModel,
     llmViewModel: LLMAssistantViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    updateViewModel: UpdateViewModel = hiltViewModel()
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     
     val serverUiState by serverViewModel.uiState.collectAsStateWithLifecycle()
+    val updateUiState by updateViewModel.uiState.collectAsStateWithLifecycle()
+
+    // 进入设置页就自动查一次，不必手动点；已经有结果时不重复请求
+    LaunchedEffect(Unit) {
+        if (updateUiState.phase == com.example.myapplication.presentation.viewmodel.UpdatePhase.IDLE) {
+            updateViewModel.checkForUpdate()
+        }
+    }
     
     // 从 DataStore 获取 LLM 配置
     val llmConfig by llmViewModel.llmConfig.collectAsState()
@@ -130,6 +141,22 @@ fun SettingsScreen(
             )
                 }
             }
+
+            // ===== 应用更新 =====
+            AppUpdateCard(
+                state = updateUiState,
+                onCheck = { updateViewModel.checkForUpdate() },
+                onDownload = { updateViewModel.download() },
+                onInstall = {
+                    updateViewModel.install().onFailure { e ->
+                        android.widget.Toast.makeText(
+                            context,
+                            e.message ?: "无法启动安装",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            )
         }
     }
 }
