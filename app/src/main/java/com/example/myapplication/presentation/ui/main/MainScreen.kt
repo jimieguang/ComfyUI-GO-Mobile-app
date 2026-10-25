@@ -12,6 +12,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
@@ -65,6 +68,20 @@ fun MainScreen() {
     
     // 获取遮罩编辑器状态
     val parserUiState by sharedParserViewModel.uiState.collectAsStateWithLifecycle()
+
+    // 回到前台时向服务端对账：
+    // WebSocket 消息流是 replay=0，后台期间断连会丢掉 execution_success 帧，
+    // 重连后只收到 status，导致进度卡在旧值甚至误报超时。此处主动校正。
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, sharedParserViewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                sharedParserViewModel.refreshExecutionStateOnResume()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     
     // 判断当前是否在参数编辑页面、设置页面或遮罩编辑器显示时（不显示底部导航栏）
     val isParameterEditScreen = currentDestination?.route == ComfyUIDestination.PARAMETER_EDIT.route

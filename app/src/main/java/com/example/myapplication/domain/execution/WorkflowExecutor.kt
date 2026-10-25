@@ -86,6 +86,87 @@ class WorkflowExecutor @Inject constructor(
     // 执行状态流
     private val _executionStatus = MutableStateFlow(ExecutionStatus())
     val executionStatus: StateFlow<ExecutionStatus> = _executionStatus.asStateFlow()
+
+    // 记录最近一次仍在执行中的任务，供 App 回到前台时与服务端对账
+    @Volatile private var activePromptId: String? = null
+    @Volatile private var activeServerUrl: String? = null
+    @Volatile private var activeStartTime: Long = 0L
+
+    /**
+     * App 回到前台时调用：把本地进度与服务端真实状态对账。
+     *
+     * 背景：WebSocket 消息流是 replay=0 的，后台期间若连接断开，
+     * execution_success 这一帧会被直接丢弃；重连后 onOpen 只发 status，
+     * 而原实现不会据此判定完成，导致进度卡住甚至误报超时。
+     *
+     * @return true 表示检测到任务已在服务端完成并已更新状态
+     */
+    suspend fun reconcileExecutionFromServer(): Boolean {
+        val pid = activePromptId ?: return false
+        val srv = activeServerUrl ?: return false
+        val snapshot = _executionStatus.value
+        val st = snapshot.state
+        if (st != ExecutionState.PREPARING && st != ExecutionState.QUEUED && st != ExecutionState.EXECUTING) {
+            return false
+        }
+        return try {
+            val historyResult = repository.getHistory(srv, pid)
+            val entry = historyResult.getOrNull()?.get(pid)?.jsonObject
+            if (entry == null) {
+                Log.d(TAG, "对账：history 尚无 $pid，任务可能仍在队列中")
+                return false
+            }
+            val statusObj = entry["status"]?.jsonObject
+            val statusStr = statusObj?.get("status_str")?.jsonPrimitive?.contentOrNull
+            val completed = statusObj?.get("completed")?.jsonPrimitive?.booleanOrNull ?: false
+
+            if (statusStr == "success" && completed) {
+                val endTime = System.currentTimeMillis()
+                val extracted = outputExtractor.extractAllOutputs(srv, entry)
+                val result = ExecutionResult(
+                    success = true,
+                    promptId = pid,
+                    outputImages = extracted.imageUrls,
+                    outputVideos = extracted.videoUrls,
+                    outputAudios = extracted.audioUrls,
+                    outputTexts = extracted.textOutputs,
+                    executionTime = endTime - activeStartTime
+                )
+                _executionStatus.value = _executionStatus.value.copy(
+                    state = ExecutionState.COMPLETED,
+                    currentNode = null,
+                    message = "执行完成",
+                    progress = 1f,
+                    result = result
+                )
+                Log.d(TAG, "对账：$pid 已在服务端完成，状态已校正")
+                activePromptId = null
+                return true
+            }
+
+            if (statusStr == "error") {
+                _executionStatus.value = _executionStatus.value.copy(
+                    state = ExecutionState.ERROR,
+                    currentNode = null,
+                    message = "执行失败",
+                    errorType = ErrorType.WORKFLOW_ERROR,
+                    errorDetails = "服务端返回 error"
+                )
+                Log.w(TAG, "对账：$pid 在服务端已失败")
+                activePromptId = null
+                return true
+            }
+
+            Log.d(TAG, "对账：$pid 仍在执行（status=$statusStr）")
+            false
+        } catch (e: Exception) {
+            Log.w(TAG, "对账失败", e)
+            false
+        }
+    }
+
+    /** 当前是否有仍在追踪的任务 */
+    fun hasActiveExecution(): Boolean = activePromptId != null
     
     /**
      * 执行工作流
@@ -134,6 +215,11 @@ class WorkflowExecutor @Inject constructor(
                 val promptId = promptResponse.prompt_id
                 
                 Log.d(TAG, "工作流提交成功，prompt_id: $promptId")
+
+                // 记录活跃任务，供回到前台时对账
+                activePromptId = promptId
+                activeServerUrl = serverUrl
+                activeStartTime = startTime
                 
                 // 6. 更新状态为执行中
                 _executionStatus.value = ExecutionStatus(
@@ -429,6 +515,39 @@ class WorkflowExecutor @Inject constructor(
                                                          "队列剩余: $queueRemaining"
                                                      else current.message
                                                  )
+
+                                                 // queue_remaining 来自服务端 get_tasks_remaining()，
+                                                 // 等于 len(queue)+len(currently_running)，因此为 0 说明服务端已无任何任务。
+                                                 // 后台期间若 WebSocket 断开，execution_success 帧会丢失（流是 replay=0），
+                                                 // 重连后只收到 status，此处主动查一次 history 完成收尾。
+                                                 if (queueRemaining == 0 &&
+                                                     (current.state == ExecutionState.EXECUTING || current.state == ExecutionState.QUEUED)
+                                                 ) {
+                                                     try {
+                                                         val hr = repository.getHistory(serverUrl, promptId)
+                                                         val entry = hr.getOrNull()?.get(promptId)?.jsonObject
+                                                         if (entry != null) {
+                                                             val so = entry["status"]?.jsonObject
+                                                             val ss = so?.get("status_str")?.jsonPrimitive?.contentOrNull
+                                                             val ok = so?.get("completed")?.jsonPrimitive?.booleanOrNull ?: false
+                                                             if (ss == "success" && ok) {
+                                                                 Log.d(TAG, "[$promptId] status 显示队列已空且 history 为 success，补发完成信号")
+                                                                 wsCompleted = true
+                                                                 wsCompletedBySignal = true
+                                                                 throw CancellationException("execution_completed_by_signal")
+                                                             } else if (ss == "error") {
+                                                                 Log.w(TAG, "[$promptId] status 显示队列已空且 history 为 error")
+                                                                 wsCompleted = true
+                                                                 wsCompletedBySignal = true
+                                                                 throw CancellationException("execution_completed_by_signal")
+                                                             }
+                                                         }
+                                                     } catch (ce: CancellationException) {
+                                                         throw ce
+                                                     } catch (e: Exception) {
+                                                         Log.w(TAG, "[$promptId] status 触发 history 校验失败，忽略", e)
+                                                     }
+                                                 }
                                              }
                                          }
                                          // 其他完成消息类型（兼容不同后端）
@@ -923,6 +1042,9 @@ class WorkflowExecutor @Inject constructor(
      * 重置执行状态
      */
     fun resetExecution() {
+        activePromptId = null
+        activeServerUrl = null
+        activeStartTime = 0L
         _executionStatus.value = ExecutionStatus()
     }
     

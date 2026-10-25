@@ -1439,6 +1439,22 @@ class WorkflowParserViewModel @Inject constructor(
     fun resetExecution() {
         workflowExecutor.resetExecution()
     }
+
+    /**
+     * App 回到前台时调用：向服务端对账，修正后台期间丢失完成信号导致的进度卡住。
+     */
+    fun refreshExecutionStateOnResume() {
+        viewModelScope.launch {
+            try {
+                val changed = workflowExecutor.reconcileExecutionFromServer()
+                if (changed) {
+                    android.util.Log.d("WorkflowParserVM", "回前台对账：状态已按服务端结果修正")
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("WorkflowParserVM", "回前台对账失败", e)
+            }
+        }
+    }
     
 }
 
